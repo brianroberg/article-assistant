@@ -10,6 +10,7 @@ from extract_article_metadata import (
     extract_metadata,
     format_markdown_header,
     fetch_article_content,
+    infer_edition_number,
 )
 
 
@@ -282,6 +283,154 @@ class TestFetchArticleContent:
             fetch_article_content("https://example.com/article")
 
         assert exc_info.value.code == 1
+
+
+class TestInferEditionNumber:
+    """Test cases for the infer_edition_number function."""
+
+    def test_infer_edition_number_winter_2025(self):
+        """Test that Winter 2025 returns 79 (base case)."""
+        result = infer_edition_number("Winter", 2025)
+        assert result == 79
+
+    def test_infer_edition_number_summer_2025(self):
+        """Test that Summer 2025 returns 81 (base case)."""
+        result = infer_edition_number("Summer", 2025)
+        assert result == 81
+
+    def test_infer_edition_number_spring_2025(self):
+        """Test that Spring 2025 returns 80."""
+        result = infer_edition_number("Spring", 2025)
+        assert result == 80
+
+    def test_infer_edition_number_fall_2025(self):
+        """Test that Fall 2025 returns 82."""
+        result = infer_edition_number("Fall", 2025)
+        assert result == 82
+
+    def test_infer_edition_number_autumn_2025(self):
+        """Test that Autumn 2025 returns 82 (same as Fall)."""
+        result = infer_edition_number("Autumn", 2025)
+        assert result == 82
+
+    def test_infer_edition_number_case_insensitive(self):
+        """Test that season matching is case insensitive."""
+        assert infer_edition_number("winter", 2025) == 79
+        assert infer_edition_number("WINTER", 2025) == 79
+        assert infer_edition_number("Winter", 2025) == 79
+
+    def test_infer_edition_number_previous_year(self):
+        """Test calculation for previous year (2024)."""
+        # 2024 Winter should be 4 issues before 2025 Winter (79)
+        assert infer_edition_number("Winter", 2024) == 75
+        assert infer_edition_number("Spring", 2024) == 76
+        assert infer_edition_number("Summer", 2024) == 77
+        assert infer_edition_number("Fall", 2024) == 78
+
+    def test_infer_edition_number_future_year(self):
+        """Test calculation for future year (2026)."""
+        # 2026 Winter should be 4 issues after 2025 Winter (79)
+        assert infer_edition_number("Winter", 2026) == 83
+        assert infer_edition_number("Spring", 2026) == 84
+        assert infer_edition_number("Summer", 2026) == 85
+        assert infer_edition_number("Fall", 2026) == 86
+
+    def test_infer_edition_number_invalid_season(self):
+        """Test that invalid seasons return None."""
+        assert infer_edition_number("Invalid", 2025) is None
+        assert infer_edition_number("", 2025) is None
+        assert infer_edition_number(None, 2025) is None
+
+    def test_infer_edition_number_invalid_year(self):
+        """Test that invalid years return None."""
+        assert infer_edition_number("Winter", "invalid") is None
+        assert infer_edition_number("Winter", None) is None
+        assert infer_edition_number("Winter", "") is None
+
+    def test_infer_edition_number_string_year(self):
+        """Test that string years are properly converted."""
+        result = infer_edition_number("Winter", "2025")
+        assert result == 79
+
+    def test_extract_metadata_season_only_winter_2025(self):
+        """Test extracting season-only information and inferring edition number."""
+        html_content = """
+        <html>
+        <body>
+            <h1>Test Article</h1>
+            <p>Published in Winter 2025</p>
+        </body>
+        </html>
+        """
+
+        metadata = extract_metadata(html_content)
+
+        assert metadata["issue_number"] == "79"
+        assert metadata["issue_season"] == "Winter 2025"
+
+    def test_extract_metadata_season_only_summer_2025(self):
+        """Test extracting Summer 2025 and inferring edition number."""
+        html_content = """
+        <html>
+        <body>
+            <h1>Test Article</h1>
+            <p>From the Summer 2025 issue</p>
+        </body>
+        </html>
+        """
+
+        metadata = extract_metadata(html_content)
+
+        assert metadata["issue_number"] == "81"
+        assert metadata["issue_season"] == "Summer 2025"
+
+    def test_extract_metadata_season_year_reversed(self):
+        """Test extracting season information when year comes first."""
+        html_content = """
+        <html>
+        <body>
+            <h1>Test Article</h1>
+            <p>2024 Spring Edition</p>
+        </body>
+        </html>
+        """
+
+        metadata = extract_metadata(html_content)
+
+        assert metadata["issue_number"] == "76"
+        assert metadata["issue_season"] == "Spring 2024"
+
+    def test_extract_metadata_prefers_explicit_issue_number(self):
+        """Test that explicit issue numbers take precedence over inferred ones."""
+        html_content = """
+        <html>
+        <body>
+            <h1>Test Article</h1>
+            <p>From No. 79 (Winter 2025) issue</p>
+            <p>Also mentions Spring 2024</p>
+        </body>
+        </html>
+        """
+
+        metadata = extract_metadata(html_content)
+
+        # Should use the explicit No. 79, not infer from Spring 2024
+        assert metadata["issue_number"] == "79"
+        assert metadata["issue_season"] == "Winter 2025"
+
+    def test_format_markdown_header_with_inferred_edition(self):
+        """Test that markdown header works with inferred edition numbers."""
+        metadata = {
+            "title": "Test Article",
+            "authors": ["Author Name"],
+            "publication": "The New Atlantis",
+            "issue_number": "81",  # Inferred from Summer 2025
+            "issue_season": "Summer 2025",
+        }
+
+        result = format_markdown_header(metadata, "2025-06-19")
+
+        assert "periodical-edition: No. 81 (Summer 2025)" in result
 
 
 if __name__ == "__main__":

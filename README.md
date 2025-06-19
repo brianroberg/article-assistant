@@ -7,6 +7,7 @@ A Python script to extract metadata from The New Atlantis articles and generate 
 - Extracts article metadata including title, author(s), and issue information
 - Generates properly formatted YAML front matter for Markdown notes
 - Supports both JSON-LD structured data and HTML fallback parsing
+- **Automatically infers edition numbers** from season information when explicit numbers aren't available
 - Normalizes author names and handles multiple authors
 - Command-line interface with customizable creation dates
 - Comprehensive error handling and validation
@@ -142,18 +143,28 @@ article-assistant/
 
 ### Metadata Extraction
 
-The script uses a two-phase approach to extract metadata:
+The script uses a multi-phase approach to extract metadata:
 
 1. **Primary**: JSON-LD structured data parsing for reliable metadata extraction
 2. **Fallback**: HTML parsing when structured data is unavailable or malformed
+3. **Edition Inference**: Automatically calculates edition numbers from season/year information when explicit numbers aren't provided
 
 ### Supported Metadata Fields
 
 - **Title**: Article headline
 - **Author(s)**: Single or multiple authors with whitespace normalization
 - **Publication**: Always set to "The New Atlantis"
-- **Issue Information**: Issue number and season when available
+- **Issue Information**: Issue number and season when available, or automatically inferred from season/year
 - **Creation Date**: Current date or user-specified date
+
+### Edition Number Inference
+
+When articles only display season information (e.g., "Winter 2025") without explicit edition numbers, the script automatically calculates the correct edition number using The New Atlantis's quarterly publication schedule:
+
+- **Publication Pattern**: Winter, Spring, Summer, Fall (4 issues per year)
+- **Reference Points**: Winter 2025 = No. 79, Summer 2025 = No. 81
+- **Calculation**: Supports past and future years with accurate numbering
+- **Format Support**: Handles both "Season Year" and "Year Season" formats
 
 ### Error Handling
 

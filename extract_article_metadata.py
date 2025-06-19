@@ -29,6 +29,45 @@ def fetch_article_content(url):
         sys.exit(1)
 
 
+def infer_edition_number(season, year):
+    """
+    Infer The New Atlantis edition number from season and year.
+    
+    Based on the quarterly publication schedule:
+    - Winter 2025 = No. 79
+    - Summer 2025 = No. 81
+    """
+    if not season or not year:
+        return None
+    
+    try:
+        year = int(year)
+    except (ValueError, TypeError):
+        return None
+    
+    season_lower = season.lower()
+    
+    # Base calculation: Winter 2025 = 79
+    # Each year has 4 issues, so year difference * 4
+    base_year = 2025
+    base_winter_number = 79
+    
+    # Calculate base number for the given year's winter issue
+    year_diff = year - base_year
+    year_base_number = base_winter_number + (year_diff * 4)
+    
+    # Season offsets within a year (Winter = 0, Spring = 1, Summer = 2, Fall = 3)
+    season_offset = {
+        'winter': 0, 'spring': 1, 'summer': 2, 'fall': 3, 'autumn': 3
+    }
+    
+    offset = season_offset.get(season_lower)
+    if offset is None:
+        return None
+    
+    return year_base_number + offset
+
+
 def extract_metadata(html_content):
     """Extract metadata from The New Atlantis article HTML."""
     soup = BeautifulSoup(html_content, "html.parser")
@@ -86,6 +125,33 @@ def extract_metadata(html_content):
         if issue_match:
             metadata["issue_number"] = issue_match.group(1)
             metadata["issue_season"] = issue_match.group(2)
+    
+    # If no explicit issue number found, look for season-only patterns
+    if not metadata.get("issue_number"):
+        # Look for patterns like "Winter 2025", "Spring 2024", etc.
+        season_patterns = [
+            r"(Winter|Spring|Summer|Fall|Autumn)\s+(\d{4})",
+            r"(\d{4})\s+(Winter|Spring|Summer|Fall|Autumn)"
+        ]
+        
+        for pattern in season_patterns:
+            season_match = soup.find(string=re.compile(pattern, re.IGNORECASE))
+            if season_match:
+                match = re.search(pattern, season_match, re.IGNORECASE)
+                if match:
+                    if match.group(1).isdigit():
+                        # Pattern: "2025 Winter"
+                        year, season = match.group(1), match.group(2)
+                    else:
+                        # Pattern: "Winter 2025"
+                        season, year = match.group(1), match.group(2)
+                    
+                    # Infer the issue number
+                    inferred_number = infer_edition_number(season, int(year))
+                    if inferred_number:
+                        metadata["issue_number"] = str(inferred_number)
+                        metadata["issue_season"] = f"{season} {year}"
+                    break
 
     # Set publication name
     metadata["publication"] = "The New Atlantis"
