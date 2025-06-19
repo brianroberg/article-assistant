@@ -133,6 +133,7 @@ article-assistant/
 │   └── test_functional.py        # Functional tests
 ├── requirements.txt               # Python dependencies
 ├── .gitignore                     # Git exclusion rules
+├── CLAUDE.md                      # Claude Code development guidelines
 ├── README.md                      # This file
 └── venv/                         # Virtual environment (created during setup)
 ```
