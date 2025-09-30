@@ -1,15 +1,18 @@
 # Article Assistant
 
-A Python script to extract metadata from The New Atlantis articles and generate Markdown headers for note-taking.
+A Python script to extract metadata from articles and generate Markdown headers for note-taking. Supports The New Atlantis (specialized extraction) and generic websites (LLM-based extraction).
 
 ## Features
 
+- **Multi-site support**: Extract metadata from The New Atlantis and generic websites
+- **Specialized extraction** for The New Atlantis with no LLM overhead
+- **LLM-based extraction** for generic sites using Simon Willison's `llm` utility
 - Extracts article metadata including title, author(s), and issue information
 - Generates properly formatted YAML front matter for Markdown notes
 - Supports both JSON-LD structured data and HTML fallback parsing
-- **Automatically infers edition numbers** from season information when explicit numbers aren't available
+- **Automatically infers edition numbers** from season information when explicit numbers aren't available (The New Atlantis)
 - Normalizes author names and handles multiple authors
-- Command-line interface with customizable creation dates
+- Command-line interface with customizable creation dates and LLM model selection
 - Comprehensive error handling and validation
 
 ## Installation
@@ -31,14 +34,35 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+4. Configure LLM API keys (for generic site extraction):
+```bash
+# For OpenAI (recommended)
+llm keys set openai
+
+# Or for Anthropic Claude
+pip install llm-anthropic
+llm keys set anthropic
+
+# Verify installation
+llm --version
+```
+
+**Note**: LLM configuration is only required for extracting metadata from generic websites. The New Atlantis extraction works without any API keys.
+
 ## Usage
 
 ### Basic Usage
 
-Extract metadata from a New Atlantis article:
+**Extract metadata from a New Atlantis article** (specialized, fast, no LLM):
 
 ```bash
 python extract_article_metadata.py "https://www.thenewatlantis.com/publications/the-tyranny-of-now"
+```
+
+**Extract metadata from a generic website** (LLM-based):
+
+```bash
+python extract_article_metadata.py "https://example.com/article-url"
 ```
 
 **Output:**
@@ -55,12 +79,26 @@ publication: The New Atlantis
 ## Notes
 ```
 
+### Specifying LLM Model
+
+Choose a different LLM model for generic extraction:
+
+```bash
+# Use OpenAI GPT-4
+python extract_article_metadata.py --model gpt-4o "https://example.com/article"
+
+# Use Anthropic Claude (requires llm-anthropic plugin)
+python extract_article_metadata.py --model claude-3.5-sonnet "https://example.com/article"
+```
+
+**Note**: The `--model` argument only affects generic site extraction. The New Atlantis uses specialized extraction logic.
+
 ### Custom Creation Date
 
 Specify a custom creation date:
 
 ```bash
-python extract_article_metadata.py --creation-date 2024-12-01 "https://www.thenewatlantis.com/publications/article-url"
+python extract_article_metadata.py --creation-date 2024-12-01 "https://example.com/article-url"
 ```
 
 ### Help
@@ -131,6 +169,7 @@ article-assistant/
 ├── tests/                         # Test directory
 │   ├── __init__.py               # Test package marker
 │   ├── test_extract_article_metadata.py  # Unit tests
+│   ├── test_extractors.py        # Extractor tests
 │   └── test_functional.py        # Functional tests
 ├── requirements.txt               # Python dependencies
 ├── .gitignore                     # Git exclusion rules
@@ -141,23 +180,53 @@ article-assistant/
 
 ## Technical Details
 
+### Architecture
+
+The script uses the **Strategy pattern** with polymorphic extractors:
+
+- **MetadataExtractor** (ABC): Abstract interface defining `extract_metadata()` and `supports_url()`
+- **NewAtlantisExtractor**: Specialized extractor for The New Atlantis articles
+  - JSON-LD structured data parsing (primary)
+  - HTML fallback parsing (secondary)
+  - Edition number inference from season/year
+  - No external API calls - fast and free
+- **LLMExtractor**: Generic extractor using `llm` utility
+  - Structured output with Pydantic schemas
+  - HTML-to-text conversion with cleanup
+  - Token-efficient (4000 char limit)
+  - Graceful error handling
+- **get_extractor_for_url()**: Factory function for site detection routing
+
+### Site Detection
+
+The script automatically detects the site and uses the appropriate extractor:
+
+1. **The New Atlantis** (`thenewatlantis.com`): Uses `NewAtlantisExtractor`
+2. **All other sites**: Uses `LLMExtractor` with configured model
+
 ### Metadata Extraction
 
-The script uses a multi-phase approach to extract metadata:
-
+**For The New Atlantis:**
 1. **Primary**: JSON-LD structured data parsing for reliable metadata extraction
 2. **Fallback**: HTML parsing when structured data is unavailable or malformed
-3. **Edition Inference**: Automatically calculates edition numbers from season/year information when explicit numbers aren't provided
+3. **Edition Inference**: Automatically calculates edition numbers from season/year information
+
+**For Generic Sites:**
+1. **HTML Cleaning**: Remove script, style, nav, header, footer tags
+2. **Text Extraction**: Convert to plain text (limited to 4000 chars)
+3. **LLM Extraction**: Use structured output (Pydantic schema) for validation
+4. **Fallback**: Basic HTML parsing if LLM fails
 
 ### Supported Metadata Fields
 
 - **Title**: Article headline
 - **Author(s)**: Single or multiple authors with whitespace normalization
-- **Publication**: Always set to "The New Atlantis"
-- **Issue Information**: Issue number and season when available, or automatically inferred from season/year
+- **Publication**: Publication name or website
+- **Issue Information**: Issue number and season (The New Atlantis only)
+- **Date Published**: Publication date in ISO format (when available)
 - **Creation Date**: Current date or user-specified date
 
-### Edition Number Inference
+### Edition Number Inference (The New Atlantis)
 
 When articles only display season information (e.g., "Winter 2025") without explicit edition numbers, the script automatically calculates the correct edition number using The New Atlantis's quarterly publication schedule:
 
@@ -170,15 +239,70 @@ When articles only display season information (e.g., "Winter 2025") without expl
 
 - Network request failures with informative error messages
 - Graceful degradation when metadata is missing
-- URL validation with warnings for non-New Atlantis URLs
+- LLM API errors with fallback to basic HTML parsing
+- Clear error messages for missing API keys
 - Proper exit codes for scripting integration
 
 ## Dependencies
 
+### Core Dependencies
 - **requests**: HTTP library for fetching article content
 - **beautifulsoup4**: HTML parsing and DOM navigation
-- **pytest**: Testing framework (development)
-- **pytest-mock**: Mocking utilities for tests (development)
+
+### Multi-Site Support Dependencies
+- **llm**: Python library for LLM interactions (generic site extraction)
+- **pydantic**: Data validation and structured output schemas
+
+### Development Dependencies
+- **pytest**: Testing framework
+- **pytest-mock**: Mocking utilities for tests
+
+## Troubleshooting
+
+**Import errors**:
+- Ensure you've activated the virtual environment: `source venv/bin/activate`
+- Verify all dependencies are installed: `pip install -r requirements.txt`
+
+**Network errors**:
+- Check your internet connection
+- Verify the URL is accessible in a web browser
+- Some sites may block automated requests
+
+**LLM extraction errors:**
+
+- **"llm package not installed"**:
+  ```bash
+  pip install llm
+  ```
+
+- **"Failed to initialize LLM model" / API key errors**:
+  ```bash
+  # Configure API key for your chosen provider
+  llm keys set openai
+  # Or
+  llm keys set anthropic
+  ```
+
+- **"Model not available"**:
+  ```bash
+  # List available models
+  llm models list
+
+  # Install additional model plugins
+  pip install llm-anthropic  # For Claude
+  pip install llm-ollama     # For local models
+  ```
+
+- **Slow LLM extraction**:
+  - LLM extraction is slower than specialized extraction due to API calls
+  - Consider using local models via `llm-ollama` plugin for faster inference
+  - The New Atlantis extraction remains fast (no LLM overhead)
+
+- **LLM extraction accuracy**:
+  - LLM extraction quality depends on the model used
+  - `gpt-4o-mini` provides good balance of speed, cost, and accuracy
+  - For higher accuracy, use `gpt-4o` or `claude-3.5-sonnet` with `--model` flag
+  - Always verify extracted metadata manually
 
 ## Development Notes
 

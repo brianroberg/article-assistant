@@ -54,9 +54,10 @@ class TestFunctionalEndToEnd:
         )
 
         assert result.returncode == 0
-        assert "Extract metadata from The New Atlantis articles" in result.stdout
-        assert "URL of The New Atlantis article" in result.stdout
+        assert "Extract metadata from articles for note-taking" in result.stdout
+        assert "URL of the article" in result.stdout
         assert "--creation-date" in result.stdout
+        assert "--model" in result.stdout
 
 
 class TestFunctionalIntegration:
@@ -118,10 +119,11 @@ class TestFunctionalIntegration:
         captured = capsys.readouterr()
         assert "creation-date: 2023-05-01" in captured.out
 
+    @patch("extract_article_metadata.llm")
     @patch("extract_article_metadata.requests.get")
     @patch("sys.argv", ["script.py", "https://example.com/article"])
-    def test_main_function_url_validation_warning(self, mock_get, capsys):
-        """Test main function URL validation warning."""
+    def test_main_function_url_validation_warning(self, mock_get, mock_llm, capsys):
+        """Test main function with generic site (LLM-based extraction)."""
         mock_html = "<html><body><h1>Test</h1></body></html>"
 
         mock_response = Mock()
@@ -129,10 +131,22 @@ class TestFunctionalIntegration:
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
 
+        # Mock LLM to avoid actual API calls
+        from extract_article_metadata import ArticleMetadata
+
+        mock_metadata = ArticleMetadata(
+            title="Test Article", authors=["Test Author"], publication="Example.com"
+        )
+        mock_llm_response = Mock()
+        mock_llm_response.schema_obj.return_value = mock_metadata
+        mock_model = Mock()
+        mock_model.prompt.return_value = mock_llm_response
+        mock_llm.get_model.return_value = mock_model
+
         main()
 
         captured = capsys.readouterr()
-        assert "Warning: URL doesn't appear to be from The New Atlantis" in captured.err
+        assert "Info: Using LLM-based extraction for this site" in captured.err
 
 
 class TestFunctionalRealWorldHtml:

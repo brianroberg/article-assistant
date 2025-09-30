@@ -160,3 +160,5 @@ Thumbs.db
 # Local configuration files
 .env.local
 config.local.*
+
+.claude

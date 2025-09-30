@@ -1,17 +1,75 @@
 #!/usr/bin/env python3
 """
-Extract metadata from The New Atlantis articles and generate Markdown headers for note-taking.
+Extract metadata from articles and generate Markdown headers for note-taking.
+Supports The New Atlantis (specialized extraction) and generic sites (LLM-based extraction).
 """
 
 import argparse
 import json
 import re
 import sys
+from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import Optional
 from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from pydantic import BaseModel, Field
+
+# Optional llm import - gracefully handle if not installed
+try:
+    import llm
+except ImportError:
+    llm = None
+
+
+class ArticleMetadata(BaseModel):
+    """Pydantic schema for article metadata extraction with structured output."""
+
+    title: str = Field(description="Article title or headline")
+    authors: list[str] = Field(
+        description="List of author names (full names, normalized)"
+    )
+    publication: str = Field(
+        description="Publication name or website (e.g., 'The New Atlantis', 'Medium')"
+    )
+    date_published: Optional[str] = Field(
+        default=None,
+        description="Publication date in ISO format (YYYY-MM-DD) if available",
+    )
+
+
+class MetadataExtractor(ABC):
+    """Abstract base class for metadata extractors."""
+
+    @abstractmethod
+    def extract_metadata(self, html_content: str, url: str) -> dict:
+        """
+        Extract metadata from HTML content.
+
+        Args:
+            html_content: Raw HTML content from the article page
+            url: Original URL of the article (for context)
+
+        Returns:
+            Dictionary with keys: title, authors, publication,
+            and optionally: date_published, issue_number, issue_season
+        """
+        pass
+
+    @abstractmethod
+    def supports_url(self, url: str) -> bool:
+        """
+        Check if this extractor supports the given URL.
+
+        Args:
+            url: The URL to check
+
+        Returns:
+            True if this extractor can handle the URL, False otherwise
+        """
+        pass
 
 
 def fetch_article_content(url):
@@ -32,131 +90,292 @@ def fetch_article_content(url):
 def infer_edition_number(season, year):
     """
     Infer The New Atlantis edition number from season and year.
-    
+
     Based on the quarterly publication schedule:
     - Winter 2025 = No. 79
     - Summer 2025 = No. 81
     """
     if not season or not year:
         return None
-    
+
     try:
         year = int(year)
     except (ValueError, TypeError):
         return None
-    
+
     season_lower = season.lower()
-    
+
     # Base calculation: Winter 2025 = 79
     # Each year has 4 issues, so year difference * 4
     base_year = 2025
     base_winter_number = 79
-    
+
     # Calculate base number for the given year's winter issue
     year_diff = year - base_year
     year_base_number = base_winter_number + (year_diff * 4)
-    
+
     # Season offsets within a year (Winter = 0, Spring = 1, Summer = 2, Fall = 3)
-    season_offset = {
-        'winter': 0, 'spring': 1, 'summer': 2, 'fall': 3, 'autumn': 3
-    }
-    
+    season_offset = {"winter": 0, "spring": 1, "summer": 2, "fall": 3, "autumn": 3}
+
     offset = season_offset.get(season_lower)
     if offset is None:
         return None
-    
+
     return year_base_number + offset
 
 
-def extract_metadata(html_content):
-    """Extract metadata from The New Atlantis article HTML."""
-    soup = BeautifulSoup(html_content, "html.parser")
-    metadata = {}
+class NewAtlantisExtractor(MetadataExtractor):
+    """
+    Specialized extractor for The New Atlantis articles.
 
-    # Try to extract from JSON-LD structured data first
-    json_ld_scripts = soup.find_all("script", type="application/ld+json")
-    for script in json_ld_scripts:
-        try:
-            data = json.loads(script.string)
-            if isinstance(data, dict) and data.get("@type") == "Article":
-                metadata["title"] = data.get("headline", "").strip()
+    Uses JSON-LD structured data with HTML fallback, and infers
+    edition numbers from season/year information.
+    """
 
-                # Handle author(s)
-                authors = data.get("author", [])
-                if isinstance(authors, dict):
-                    authors = [authors]
-                if authors:
-                    metadata["authors"] = [
-                        re.sub(r"\s+", " ", author.get("name", "").strip())
-                        for author in authors
-                        if author.get("name")
-                    ]
+    def supports_url(self, url: str) -> bool:
+        """Check if URL is from The New Atlantis."""
+        parsed = urlparse(url)
+        return "thenewatlantis.com" in parsed.netloc
 
-                # Extract publication date
-                date_published = data.get("datePublished", "")
-                if date_published:
-                    metadata["date_published"] = date_published
+    def extract_metadata(self, html_content: str, url: str) -> dict:
+        """
+        Extract metadata using The New Atlantis-specific logic.
 
-                break
-        except (json.JSONDecodeError, KeyError):
-            continue
+        This is the existing extract_metadata() function logic,
+        moved into the class.
+        """
+        soup = BeautifulSoup(html_content, "html.parser")
+        metadata = {}
 
-    # Fallback to HTML parsing if JSON-LD doesn't work
-    if not metadata.get("title"):
-        title_tag = soup.find("h1") or soup.find("title")
-        if title_tag:
-            metadata["title"] = title_tag.get_text().strip()
+        # Try to extract from JSON-LD structured data first
+        json_ld_scripts = soup.find_all("script", type="application/ld+json")
+        for script in json_ld_scripts:
+            try:
+                data = json.loads(script.string)
+                if isinstance(data, dict) and data.get("@type") == "Article":
+                    metadata["title"] = data.get("headline", "").strip()
 
-    # Extract author from byline if not found in JSON-LD
-    if not metadata.get("authors"):
-        byline = soup.find(class_=re.compile(r"author|byline", re.I))
-        if byline:
-            author_text = byline.get_text().strip()
-            # Clean up common prefixes
-            author_text = re.sub(r"^(by|author:?)\s*", "", author_text, flags=re.I)
-            # Normalize whitespace
-            author_text = re.sub(r"\s+", " ", author_text)
-            metadata["authors"] = [author_text]
+                    # Handle author(s)
+                    authors = data.get("author", [])
+                    if isinstance(authors, dict):
+                        authors = [authors]
+                    if authors:
+                        metadata["authors"] = [
+                            re.sub(r"\s+", " ", author.get("name", "").strip())
+                            for author in authors
+                            if author.get("name")
+                        ]
 
-    # Extract issue information
-    issue_info = soup.find(string=re.compile(r"No\.\s*\d+"))
-    if issue_info:
-        issue_match = re.search(r"No\.\s*(\d+)\s*\(([^)]+)\)", issue_info)
-        if issue_match:
-            metadata["issue_number"] = issue_match.group(1)
-            metadata["issue_season"] = issue_match.group(2)
-    
-    # If no explicit issue number found, look for season-only patterns
-    if not metadata.get("issue_number"):
-        # Look for patterns like "Winter 2025", "Spring 2024", etc.
-        season_patterns = [
-            r"(Winter|Spring|Summer|Fall|Autumn)\s+(\d{4})",
-            r"(\d{4})\s+(Winter|Spring|Summer|Fall|Autumn)"
-        ]
-        
-        for pattern in season_patterns:
-            season_match = soup.find(string=re.compile(pattern, re.IGNORECASE))
-            if season_match:
-                match = re.search(pattern, season_match, re.IGNORECASE)
-                if match:
-                    if match.group(1).isdigit():
-                        # Pattern: "2025 Winter"
-                        year, season = match.group(1), match.group(2)
-                    else:
-                        # Pattern: "Winter 2025"
-                        season, year = match.group(1), match.group(2)
-                    
-                    # Infer the issue number
-                    inferred_number = infer_edition_number(season, int(year))
-                    if inferred_number:
-                        metadata["issue_number"] = str(inferred_number)
-                        metadata["issue_season"] = f"{season} {year}"
+                    # Extract publication date
+                    date_published = data.get("datePublished", "")
+                    if date_published:
+                        metadata["date_published"] = date_published
+
                     break
+            except (json.JSONDecodeError, KeyError):
+                continue
 
-    # Set publication name
-    metadata["publication"] = "The New Atlantis"
+        # Fallback to HTML parsing if JSON-LD doesn't work
+        if not metadata.get("title"):
+            title_tag = soup.find("h1") or soup.find("title")
+            if title_tag:
+                metadata["title"] = title_tag.get_text().strip()
 
-    return metadata
+        # Extract author from byline if not found in JSON-LD
+        if not metadata.get("authors"):
+            byline = soup.find(class_=re.compile(r"author|byline", re.I))
+            if byline:
+                author_text = byline.get_text().strip()
+                # Clean up common prefixes
+                author_text = re.sub(r"^(by|author:?)\s*", "", author_text, flags=re.I)
+                # Normalize whitespace
+                author_text = re.sub(r"\s+", " ", author_text)
+                metadata["authors"] = [author_text]
+
+        # Extract issue information
+        issue_info = soup.find(string=re.compile(r"No\.\s*\d+"))
+        if issue_info:
+            issue_match = re.search(r"No\.\s*(\d+)\s*\(([^)]+)\)", issue_info)
+            if issue_match:
+                metadata["issue_number"] = issue_match.group(1)
+                metadata["issue_season"] = issue_match.group(2)
+
+        # If no explicit issue number found, look for season-only patterns
+        if not metadata.get("issue_number"):
+            # Look for patterns like "Winter 2025", "Spring 2024", etc.
+            season_patterns = [
+                r"(Winter|Spring|Summer|Fall|Autumn)\s+(\d{4})",
+                r"(\d{4})\s+(Winter|Spring|Summer|Fall|Autumn)",
+            ]
+
+            for pattern in season_patterns:
+                season_match = soup.find(string=re.compile(pattern, re.IGNORECASE))
+                if season_match:
+                    match = re.search(pattern, season_match, re.IGNORECASE)
+                    if match:
+                        if match.group(1).isdigit():
+                            # Pattern: "2025 Winter"
+                            year, season = match.group(1), match.group(2)
+                        else:
+                            # Pattern: "Winter 2025"
+                            season, year = match.group(1), match.group(2)
+
+                        # Infer the issue number
+                        inferred_number = infer_edition_number(season, int(year))
+                        if inferred_number:
+                            metadata["issue_number"] = str(inferred_number)
+                            metadata["issue_season"] = f"{season} {year}"
+                        break
+
+        # Set publication name
+        metadata["publication"] = "The New Atlantis"
+
+        return metadata
+
+
+class LLMExtractor(MetadataExtractor):
+    """
+    Generic extractor using LLM for metadata extraction.
+
+    Uses Simon Willison's llm utility with structured output (Pydantic schemas)
+    to extract metadata from arbitrary websites.
+    """
+
+    def __init__(self, model_name: str = "gpt-4o-mini"):
+        """
+        Initialize LLM extractor.
+
+        Args:
+            model_name: Name of the LLM model to use (default: gpt-4o-mini)
+
+        Raises:
+            ImportError: If llm package is not installed
+            RuntimeError: If llm model is not available or API key not configured
+        """
+        if llm is None:
+            raise ImportError(
+                "llm package not installed. Install with: pip install llm\n"
+                "Then configure API keys with: llm keys set openai"
+            )
+
+        try:
+            self.model = llm.get_model(model_name)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to initialize LLM model '{model_name}': {e}\n"
+                f"Ensure you have configured API keys: llm keys set openai"
+            ) from e
+
+        self.model_name = model_name
+
+    def supports_url(self, url: str) -> bool:
+        """LLMExtractor supports all URLs (fallback extractor)."""
+        return True
+
+    def extract_metadata(self, html_content: str, url: str) -> dict:
+        """
+        Extract metadata using LLM with structured output.
+
+        Args:
+            html_content: Raw HTML content
+            url: Original URL (included in context for LLM)
+
+        Returns:
+            Dictionary with extracted metadata
+        """
+        # Convert HTML to text
+        soup = BeautifulSoup(html_content, "html.parser")
+
+        # Remove script and style tags
+        for tag in soup(["script", "style", "nav", "footer", "header"]):
+            tag.decompose()
+
+        # Extract text and limit length for token efficiency
+        text = soup.get_text(separator="\n", strip=True)
+        # Limit to ~4000 characters (roughly 1000 tokens)
+        text = text[:4000]
+
+        # Create prompt with context
+        prompt = f"""Extract metadata from this article webpage.
+
+URL: {url}
+
+Article content:
+{text}
+
+Extract the following information:
+- title: The article title or headline
+- authors: List of author names (if available, otherwise empty list)
+- publication: Name of the website or publication
+- date_published: Publication date in YYYY-MM-DD format if available
+
+Be accurate and only extract information that is clearly present."""
+
+        try:
+            # Use structured output for reliable extraction
+            response = self.model.prompt(
+                prompt,
+                system="You are a metadata extraction assistant. Extract article metadata accurately and return structured data. If information is not available, use empty strings or empty lists as appropriate.",
+                schema=ArticleMetadata,
+            )
+
+            metadata_obj = response.schema_obj()
+
+            # Convert Pydantic model to dict format matching NewAtlantisExtractor
+            return {
+                "title": metadata_obj.title,
+                "authors": metadata_obj.authors,
+                "publication": metadata_obj.publication,
+                "date_published": metadata_obj.date_published,
+            }
+
+        except Exception as e:
+            print(f"Error during LLM extraction: {e}", file=sys.stderr)
+            # Return minimal metadata on failure
+            return {
+                "title": soup.find("title").get_text()
+                if soup.find("title")
+                else "Unknown Title",
+                "authors": [],
+                "publication": urlparse(url).netloc,
+            }
+
+
+def get_extractor_for_url(
+    url: str, model_name: str = "gpt-4o-mini"
+) -> MetadataExtractor:
+    """
+    Return appropriate metadata extractor based on URL.
+
+    Args:
+        url: The article URL to extract from
+        model_name: LLM model name for generic extraction (default: gpt-4o-mini)
+
+    Returns:
+        MetadataExtractor instance (NewAtlantisExtractor or LLMExtractor)
+
+    Raises:
+        ImportError: If LLMExtractor is needed but llm is not installed
+    """
+    parsed_url = urlparse(url)
+
+    # Check specialized extractors first
+    if "thenewatlantis.com" in parsed_url.netloc:
+        return NewAtlantisExtractor()
+
+    # Fall back to LLM for generic sites
+    return LLMExtractor(model_name=model_name)
+
+
+def extract_metadata(html_content):
+    """
+    Extract metadata from The New Atlantis article HTML.
+
+    DEPRECATED: This function is kept for backward compatibility with existing tests.
+    New code should use NewAtlantisExtractor directly.
+    """
+    extractor = NewAtlantisExtractor()
+    return extractor.extract_metadata(html_content, "")
 
 
 def format_markdown_header(metadata, creation_date=None):
@@ -199,27 +418,52 @@ def format_markdown_header(metadata, creation_date=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Extract metadata from The New Atlantis articles for note-taking"
+        description="Extract metadata from articles for note-taking. "
+        "Supports The New Atlantis (specialized) and generic sites (LLM-based)."
     )
-    parser.add_argument("url", help="URL of The New Atlantis article")
+    parser.add_argument("url", help="URL of the article")
     parser.add_argument(
         "--creation-date",
         help="Override creation date (YYYY-MM-DD format)",
         default=None,
     )
+    parser.add_argument(
+        "--model",
+        default="gpt-4o-mini",
+        help="LLM model for generic extraction (default: gpt-4o-mini). "
+        "Only used for non-specialized sites.",
+    )
 
     args = parser.parse_args()
 
-    # Validate URL
-    parsed_url = urlparse(args.url)
-    if not parsed_url.netloc or "thenewatlantis.com" not in parsed_url.netloc:
-        print(
-            "Warning: URL doesn't appear to be from The New Atlantis", file=sys.stderr
-        )
-
-    # Fetch and process article
+    # Fetch HTML
     html_content = fetch_article_content(args.url)
-    metadata = extract_metadata(html_content)
+
+    # Get appropriate extractor
+    try:
+        extractor = get_extractor_for_url(args.url, model_name=args.model)
+    except ImportError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        print(
+            "\nFor generic site extraction, install: pip install llm", file=sys.stderr
+        )
+        sys.exit(1)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Extract metadata using appropriate extractor
+    metadata = extractor.extract_metadata(html_content, args.url)
+
+    # Optional: Show which extractor was used (for user feedback)
+    extractor_name = extractor.__class__.__name__
+    if extractor_name != "NewAtlantisExtractor":
+        print(f"# Using {extractor_name} with model: {args.model}", file=sys.stderr)
+
+    # Warn if URL doesn't match common patterns (updated check)
+    parsed_url = urlparse(args.url)
+    if "thenewatlantis.com" not in parsed_url.netloc:
+        print("Info: Using LLM-based extraction for this site", file=sys.stderr)
 
     # Generate and print Markdown header
     markdown_header = format_markdown_header(metadata, args.creation_date)
