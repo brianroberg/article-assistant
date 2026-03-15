@@ -12,17 +12,33 @@ from article_assistant import NewAtlantisExtractor, LLMExtractor, main
 class TestNewAtlantisExtractorContent:
     """Test cases for NewAtlantisExtractor.extract_content."""
 
-    def test_extract_content_from_article_content_div(self):
-        """Test extracting content from a div.article-content element."""
+    def test_extract_content_from_gutenberg_content_div(self):
+        """Test extracting content from the real div.gutenberg-content structure."""
         extractor = NewAtlantisExtractor()
         html = """
         <html><body>
             <nav>Navigation links</nav>
-            <div class="article-content">
-                <h2>Introduction</h2>
-                <p>This is the article body with some <em>emphasis</em> and a
-                <a href="https://example.com">link</a>.</p>
-                <p>Second paragraph of the article.</p>
+            <div class="flex">
+              <div class="relative w-full">
+                <div class="lg:-mx-8">
+                  <div class="gutenberg-content article-entry print:w-full print:inline">
+                    <div class="tooltip-container">
+                      <div class="tooltip">Subscriber Only Sign in</div>
+                    </div>
+                    <p class="has-drop-cap">One day, Mrs. Pengelley came to London
+                    seeking the assistance of Hercule Poirot.</p>
+                    <p class="">After listening to her tale with great interest,
+                    Poirot agrees to take up the case.</p>
+                    <h2>Section Heading</h2>
+                    <p class="">More article content with <em>emphasis</em> and a
+                    <a href="https://example.com">link</a>.</p>
+                    <div class="lazyblock-epigraph-2nCeXv alignwide wp-block-lazyblock-epigraph">
+                      Keep reading our Winter 2026 issue
+                    </div>
+                    <style>.gutenberg-content .block-tna-editors-note p:last-child::after {}</style>
+                  </div>
+                </div>
+              </div>
             </div>
             <footer>Footer content</footer>
         </body></html>
@@ -30,16 +46,15 @@ class TestNewAtlantisExtractorContent:
 
         result = extractor.extract_content(html, "https://thenewatlantis.com/test")
 
-        assert "Introduction" in result
-        assert "article body" in result
+        assert "Mrs. Pengelley" in result
+        assert "Poirot agrees" in result
+        assert "Section Heading" in result
         assert "emphasis" in result
-        assert "Second paragraph" in result
-        # Should not contain YAML front matter or notes section
-        assert "---" not in result
-        assert "## Notes" not in result
-        # Should not contain nav/footer noise
+        # Should not contain noise
         assert "Navigation links" not in result
         assert "Footer content" not in result
+        assert "Subscriber Only" not in result
+        assert "Keep reading our Winter 2026" not in result
 
     def test_extract_content_fallback_to_article_tag(self):
         """Test fallback to <article> when no div.article-content exists."""
@@ -65,7 +80,7 @@ class TestNewAtlantisExtractorContent:
         extractor = NewAtlantisExtractor()
         html = """
         <html><body>
-            <div class="article-content">
+            <div class="gutenberg-content article-entry">
                 <p>Before image.</p>
                 <img src="https://example.com/photo.jpg" alt="A photo">
                 <p>After image.</p>
@@ -83,7 +98,7 @@ class TestNewAtlantisExtractorContent:
         extractor = NewAtlantisExtractor()
         html = """
         <html><body>
-            <div class="article-content">
+            <div class="gutenberg-content article-entry">
                 <p>Before image.</p>
                 <img src="https://example.com/photo.jpg" alt="A photo">
                 <p>After image.</p>
@@ -201,7 +216,7 @@ class TestContentSubcommand:
         """Test that the content subcommand outputs article body as Markdown."""
         mock_html = """
         <html><body>
-            <div class="article-content">
+            <div class="gutenberg-content article-entry">
                 <h2>Introduction</h2>
                 <p>This is a test article with enough content to be substantial.
                 It needs to be over two hundred characters so the markdownify
@@ -241,7 +256,7 @@ class TestContentSubcommand:
         """Test that --no-images strips images from output."""
         mock_html = """
         <html><body>
-            <div class="article-content">
+            <div class="gutenberg-content article-entry">
                 <p>Text before image with enough content to be substantial
                 for the markdownify check and avoid LLM fallback path.</p>
                 <img src="https://example.com/photo.jpg" alt="A photo">

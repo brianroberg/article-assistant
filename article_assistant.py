@@ -260,7 +260,7 @@ class NewAtlantisExtractor(MetadataExtractor):
         soup = BeautifulSoup(html_content, "html.parser")
 
         body = (
-            soup.find("div", class_="article-content")
+            soup.find("div", class_="gutenberg-content")
             or soup.find("article")
             or soup.find("main")
             or soup.find("body")
@@ -271,6 +271,14 @@ class NewAtlantisExtractor(MetadataExtractor):
 
         # Strip noise elements within the body
         for tag in body.find_all(["script", "style", "nav", "aside"]):
+            tag.decompose()
+        # Strip tooltip/paywall prompts
+        for tag in body.find_all("div", class_="tooltip-container"):
+            tag.decompose()
+        # Strip promotional "Keep reading" epigraph blocks at end
+        for tag in body.find_all(
+            "div", class_=lambda c: c and "wp-block-lazyblock-epigraph" in c
+        ):
             tag.decompose()
 
         strip_tags = ["img"] if not include_images else []
