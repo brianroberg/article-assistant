@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Functional tests for extract_article_metadata.py
+Functional tests for article_assistant.py
 Tests the script end-to-end with real and mock data.
 """
 
@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch, Mock
 import pytest
 
-from extract_article_metadata import main
+from article_assistant import main
 
 
 class TestFunctionalEndToEnd:
@@ -21,7 +21,8 @@ class TestFunctionalEndToEnd:
         result = subprocess.run(
             [
                 sys.executable,
-                "extract_article_metadata.py",
+                "article_assistant.py",
+                "metadata",
                 "https://nonexistent-domain-12345.com/article",
             ],
             capture_output=True,
@@ -33,39 +34,36 @@ class TestFunctionalEndToEnd:
         assert "Error fetching article:" in result.stderr
 
     def test_script_no_arguments(self):
-        """Test script behavior when no URL argument provided."""
+        """Test script behavior when no subcommand provided."""
         result = subprocess.run(
-            [sys.executable, "extract_article_metadata.py"],
+            [sys.executable, "article_assistant.py"],
             capture_output=True,
             text=True,
             cwd=Path(__file__).parent.parent,
         )
 
         assert result.returncode == 2  # argparse error
-        assert "error: the following arguments are required: url" in result.stderr
 
     def test_script_help_message(self):
         """Test script help message display."""
         result = subprocess.run(
-            [sys.executable, "extract_article_metadata.py", "--help"],
+            [sys.executable, "article_assistant.py", "--help"],
             capture_output=True,
             text=True,
             cwd=Path(__file__).parent.parent,
         )
 
         assert result.returncode == 0
-        assert "Extract metadata from articles for note-taking" in result.stdout
-        assert "URL of the article" in result.stdout
-        assert "--creation-date" in result.stdout
-        assert "--model" in result.stdout
+        assert "metadata" in result.stdout
+        assert "content" in result.stdout
 
 
 class TestFunctionalIntegration:
     """Integration tests using the main function directly."""
 
-    @patch("extract_article_metadata.requests.get")
+    @patch("article_assistant.requests.get")
     @patch("builtins.print")
-    @patch("sys.argv", ["script.py", "https://www.thenewatlantis.com/test"])
+    @patch("sys.argv", ["script.py", "metadata", "https://www.thenewatlantis.com/test"])
     def test_main_function_integration(self, mock_print, mock_get):
         """Test main function integration with mocked dependencies."""
         mock_html = """
@@ -97,9 +95,10 @@ class TestFunctionalIntegration:
         assert "  - Integration Author" in output
         assert "## Notes" in output
 
-    @patch("extract_article_metadata.requests.get")
+    @patch("article_assistant.requests.get")
     @patch(
-        "sys.argv", ["script.py", "--creation-date", "2023-05-01", "https://test.com"]
+        "sys.argv",
+        ["script.py", "metadata", "--creation-date", "2023-05-01", "https://test.com"],
     )
     def test_main_function_with_custom_date(self, mock_get, capsys):
         """Test main function with custom creation date."""
@@ -119,9 +118,9 @@ class TestFunctionalIntegration:
         captured = capsys.readouterr()
         assert "creation-date: 2023-05-01" in captured.out
 
-    @patch("extract_article_metadata.llm")
-    @patch("extract_article_metadata.requests.get")
-    @patch("sys.argv", ["script.py", "https://example.com/article"])
+    @patch("article_assistant.llm")
+    @patch("article_assistant.requests.get")
+    @patch("sys.argv", ["script.py", "metadata", "https://example.com/article"])
     def test_main_function_url_validation_warning(self, mock_get, mock_llm, capsys):
         """Test main function with generic site (LLM-based extraction)."""
         mock_html = "<html><body><h1>Test</h1></body></html>"
@@ -132,7 +131,7 @@ class TestFunctionalIntegration:
         mock_get.return_value = mock_response
 
         # Mock LLM to avoid actual API calls
-        from extract_article_metadata import ArticleMetadata
+        from article_assistant import ArticleMetadata
 
         mock_metadata = ArticleMetadata(
             title="Test Article", authors=["Test Author"], publication="Example.com"
@@ -154,7 +153,7 @@ class TestFunctionalRealWorldHtml:
 
     def test_complex_html_structure(self):
         """Test with complex HTML structure similar to real articles."""
-        from extract_article_metadata import extract_metadata, format_markdown_header
+        from article_assistant import extract_metadata, format_markdown_header
 
         complex_html = """
         <!DOCTYPE html>
@@ -216,7 +215,7 @@ class TestFunctionalRealWorldHtml:
 
     def test_fallback_html_parsing(self):
         """Test fallback HTML parsing when JSON-LD is malformed."""
-        from extract_article_metadata import extract_metadata
+        from article_assistant import extract_metadata
 
         fallback_html = """
         <html>
@@ -251,7 +250,7 @@ class TestFunctionalRealWorldHtml:
 
     def test_minimal_html_handling(self):
         """Test handling of minimal HTML with missing elements."""
-        from extract_article_metadata import extract_metadata, format_markdown_header
+        from article_assistant import extract_metadata, format_markdown_header
 
         minimal_html = """
         <html>

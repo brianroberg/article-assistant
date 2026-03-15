@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Unit tests for extract_article_metadata.py
+Unit tests for article_assistant.py
 """
 
 import pytest
 from unittest.mock import patch, Mock
 
-from extract_article_metadata import (
+from article_assistant import (
     extract_metadata,
     format_markdown_header,
     fetch_article_content,
@@ -221,7 +221,7 @@ publication: The New Atlantis
             "publication": "The New Atlantis",
         }
 
-        with patch("extract_article_metadata.datetime") as mock_datetime:
+        with patch("article_assistant.datetime") as mock_datetime:
             mock_datetime.now.return_value.strftime.return_value = "2025-06-19"
             result = format_markdown_header(metadata)
 
@@ -241,7 +241,7 @@ publication: The New Atlantis
 class TestFetchArticleContent:
     """Test cases for the fetch_article_content function."""
 
-    @patch("extract_article_metadata.requests.get")
+    @patch("article_assistant.requests.get")
     def test_fetch_article_content_success(self, mock_get):
         """Test successful article content fetching."""
         mock_response = Mock()
@@ -258,7 +258,7 @@ class TestFetchArticleContent:
         call_args = mock_get.call_args
         assert "User-Agent" in call_args[1]["headers"]
 
-    @patch("extract_article_metadata.requests.get")
+    @patch("article_assistant.requests.get")
     def test_fetch_article_content_request_error(self, mock_get):
         """Test handling of request errors."""
         from requests import RequestException
@@ -270,7 +270,7 @@ class TestFetchArticleContent:
 
         assert exc_info.value.code == 1
 
-    @patch("extract_article_metadata.requests.get")
+    @patch("article_assistant.requests.get")
     def test_fetch_article_content_http_error(self, mock_get):
         """Test handling of HTTP errors."""
         from requests import RequestException

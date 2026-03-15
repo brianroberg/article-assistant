@@ -6,7 +6,7 @@ Unit tests for metadata extractors (NewAtlantisExtractor and LLMExtractor).
 import pytest
 from unittest.mock import Mock, patch
 
-from extract_article_metadata import (
+from article_assistant import (
     NewAtlantisExtractor,
     LLMExtractor,
     get_extractor_for_url,
@@ -73,11 +73,11 @@ class TestLLMExtractor:
 
     def test_llm_extractor_import_error(self):
         """Test that LLMExtractor raises ImportError when llm not installed."""
-        with patch("extract_article_metadata.llm", None):
+        with patch("article_assistant.llm", None):
             with pytest.raises(ImportError, match="llm package not installed"):
                 LLMExtractor()
 
-    @patch("extract_article_metadata.llm")
+    @patch("article_assistant.llm")
     def test_llm_extractor_initialization(self, mock_llm):
         """Test LLMExtractor initialization with mocked llm."""
         mock_model = Mock()
@@ -89,7 +89,7 @@ class TestLLMExtractor:
         assert extractor.model_name == "gpt-4o-mini"
         mock_llm.get_model.assert_called_once_with("gpt-4o-mini")
 
-    @patch("extract_article_metadata.llm")
+    @patch("article_assistant.llm")
     def test_llm_extractor_supports_all_urls(self, mock_llm):
         """Test that LLMExtractor supports all URLs (fallback)."""
         mock_llm.get_model.return_value = Mock()
@@ -99,7 +99,7 @@ class TestLLMExtractor:
         assert extractor.supports_url("https://medium.com/@user/post")
         assert extractor.supports_url("https://thenewatlantis.com/test")
 
-    @patch("extract_article_metadata.llm")
+    @patch("article_assistant.llm")
     def test_llm_extractor_extraction(self, mock_llm):
         """Test LLM extraction with mocked response."""
         # Mock LLM response
@@ -137,7 +137,7 @@ class TestLLMExtractor:
         assert metadata["publication"] == "Example Site"
         assert metadata["date_published"] == "2025-01-15"
 
-    @patch("extract_article_metadata.llm")
+    @patch("article_assistant.llm")
     def test_llm_extractor_removes_script_tags(self, mock_llm):
         """Test that script and style tags are removed before LLM processing."""
         mock_metadata = ArticleMetadata(
@@ -173,7 +173,7 @@ class TestLLMExtractor:
         assert "alert('test')" not in call_args
         assert "console.log" not in call_args
 
-    @patch("extract_article_metadata.llm")
+    @patch("article_assistant.llm")
     def test_llm_extractor_error_handling(self, mock_llm):
         """Test error handling when LLM extraction fails."""
         mock_model = Mock()
@@ -205,7 +205,7 @@ class TestSiteDetection:
         extractor = get_extractor_for_url("https://www.thenewatlantis.com/article")
         assert isinstance(extractor, NewAtlantisExtractor)
 
-    @patch("extract_article_metadata.llm")
+    @patch("article_assistant.llm")
     def test_get_extractor_for_generic_site(self, mock_llm):
         """Test that generic URLs get LLMExtractor."""
         mock_llm.get_model.return_value = Mock()
@@ -213,7 +213,7 @@ class TestSiteDetection:
         extractor = get_extractor_for_url("https://example.com/article")
         assert isinstance(extractor, LLMExtractor)
 
-    @patch("extract_article_metadata.llm")
+    @patch("article_assistant.llm")
     def test_get_extractor_passes_model_name(self, mock_llm):
         """Test that model_name is passed to LLMExtractor."""
         mock_model = Mock()

@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from markdownify import markdownify
 from pydantic import BaseModel, Field
 
 # Optional llm import - gracefully handle if not installed
@@ -68,6 +69,26 @@ class MetadataExtractor(ABC):
 
         Returns:
             True if this extractor can handle the URL, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    def extract_content(
+        self, html_content: str, url: str, include_images: bool = True
+    ) -> str:
+        """
+        Extract article body as Markdown.
+
+        Args:
+            html_content: Raw HTML content from the article page
+            url: Original URL of the article (for context)
+            include_images: If True, render images as ![alt](url). If False, strip them.
+
+        Returns:
+            Article body as a Markdown string.
+
+        Raises:
+            ValueError: If the article body cannot be located.
         """
         pass
 
@@ -232,6 +253,31 @@ class NewAtlantisExtractor(MetadataExtractor):
 
         return metadata
 
+    def extract_content(
+        self, html_content: str, url: str, include_images: bool = True
+    ) -> str:
+        """Extract article body as Markdown using site-specific selectors."""
+        soup = BeautifulSoup(html_content, "html.parser")
+
+        body = (
+            soup.find("div", class_="article-content")
+            or soup.find("article")
+            or soup.find("main")
+            or soup.find("body")
+        )
+
+        if not body or not body.get_text(strip=True):
+            raise ValueError("Could not locate article body")
+
+        # Strip noise elements within the body
+        for tag in body.find_all(["script", "style", "nav", "aside"]):
+            tag.decompose()
+
+        strip_tags = ["img"] if not include_images else []
+        md = markdownify(str(body), heading_style="ATX", strip=strip_tags)
+        md = re.sub(r"\n{3,}", "\n\n", md)
+        return md.strip()
+
 
 class LLMExtractor(MetadataExtractor):
     """
@@ -340,6 +386,68 @@ Be accurate and only extract information that is clearly present."""
                 "publication": urlparse(url).netloc,
             }
 
+    def extract_content(
+        self, html_content: str, url: str, include_images: bool = True
+    ) -> str:
+        """Extract article body as Markdown using markdownify with LLM fallback."""
+        soup = BeautifulSoup(html_content, "html.parser")
+
+        # Find article body element
+        body = soup.find("article") or soup.find("main") or soup.find("body")
+
+        md_result = ""
+        if body:
+            for tag in body.find_all(
+                ["script", "style", "nav", "header", "footer", "aside"]
+            ):
+                tag.decompose()
+
+            strip_tags = ["img"] if not include_images else []
+            md_result = markdownify(str(body), heading_style="ATX", strip=strip_tags)
+            md_result = re.sub(r"\n{3,}", "\n\n", md_result).strip()
+
+            if len(md_result) > 200:
+                return md_result
+
+        # Fallback to LLM for thin or missing markdownify results
+        soup = BeautifulSoup(html_content, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
+            tag.decompose()
+
+        text = soup.get_text(separator="\n", strip=True)
+        text = text[:20000]
+
+        image_instruction = (
+            "Include images as ![alt text](url)."
+            if include_images
+            else "Do not include any images."
+        )
+
+        prompt = f"""Render the main article body from the following webpage as clean Markdown.
+
+URL: {url}
+
+- Preserve all headings, paragraphs, lists, blockquotes, and emphasis.
+- {image_instruction}
+- Exclude navigation, ads, author bios, and related article links.
+- Output ONLY the article body. No front matter or commentary.
+
+Content:
+{text}"""
+
+        try:
+            response = self.model.prompt(
+                prompt,
+                system="You are a content extraction assistant. "
+                "Convert article content to clean, well-structured Markdown.",
+            )
+            return response.text()
+        except Exception as e:
+            print(f"Error during LLM content extraction: {e}", file=sys.stderr)
+            if md_result:
+                return md_result
+            raise ValueError(f"Could not extract article content: {e}") from e
+
 
 def get_extractor_for_url(
     url: str, model_name: str = "gpt-4o-mini"
@@ -416,58 +524,106 @@ def format_markdown_header(metadata, creation_date=None):
     return "\n".join(yaml_lines)
 
 
+def _run_metadata(args):
+    """Handle the metadata subcommand."""
+    html_content = fetch_article_content(args.url)
+
+    try:
+        extractor = get_extractor_for_url(args.url, model_name=args.model)
+    except ImportError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        print("\nFor generic site extraction, install: uv add llm", file=sys.stderr)
+        sys.exit(1)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    metadata = extractor.extract_metadata(html_content, args.url)
+
+    extractor_name = extractor.__class__.__name__
+    if extractor_name != "NewAtlantisExtractor":
+        print(f"# Using {extractor_name} with model: {args.model}", file=sys.stderr)
+
+    parsed_url = urlparse(args.url)
+    if "thenewatlantis.com" not in parsed_url.netloc:
+        print("Info: Using LLM-based extraction for this site", file=sys.stderr)
+
+    markdown_header = format_markdown_header(metadata, args.creation_date)
+    print(markdown_header)
+
+
+def _run_content(args):
+    """Handle the content subcommand."""
+    html_content = fetch_article_content(args.url)
+
+    try:
+        extractor = get_extractor_for_url(args.url, model_name=args.model)
+    except ImportError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    include_images = not args.no_images
+    try:
+        content = extractor.extract_content(html_content, args.url, include_images)
+    except ValueError as e:
+        print(f"Error extracting content: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(content)
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Extract metadata from articles for note-taking. "
-        "Supports The New Atlantis (specialized) and generic sites (LLM-based)."
+        description="Article Assistant: extract metadata or content from articles."
     )
-    parser.add_argument("url", help="URL of the article")
-    parser.add_argument(
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # metadata subcommand
+    metadata_parser = subparsers.add_parser(
+        "metadata",
+        help="Extract article metadata as YAML front matter",
+    )
+    metadata_parser.add_argument("url", help="URL of the article")
+    metadata_parser.add_argument(
         "--creation-date",
         help="Override creation date (YYYY-MM-DD format)",
         default=None,
     )
-    parser.add_argument(
+    metadata_parser.add_argument(
         "--model",
         default="gpt-4o-mini",
         help="LLM model for generic extraction (default: gpt-4o-mini). "
         "Only used for non-specialized sites.",
     )
 
+    # content subcommand
+    content_parser = subparsers.add_parser(
+        "content",
+        help="Extract article body as Markdown",
+    )
+    content_parser.add_argument("url", help="URL of the article")
+    content_parser.add_argument(
+        "--model",
+        default="gpt-4o-mini",
+        help="LLM model for generic extraction (default: gpt-4o-mini). "
+        "Only used for non-specialized sites.",
+    )
+    content_parser.add_argument(
+        "--no-images",
+        action="store_true",
+        default=False,
+        help="Strip images from the output",
+    )
+
     args = parser.parse_args()
 
-    # Fetch HTML
-    html_content = fetch_article_content(args.url)
-
-    # Get appropriate extractor
-    try:
-        extractor = get_extractor_for_url(args.url, model_name=args.model)
-    except ImportError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        print(
-            "\nFor generic site extraction, install: pip install llm", file=sys.stderr
-        )
-        sys.exit(1)
-    except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    # Extract metadata using appropriate extractor
-    metadata = extractor.extract_metadata(html_content, args.url)
-
-    # Optional: Show which extractor was used (for user feedback)
-    extractor_name = extractor.__class__.__name__
-    if extractor_name != "NewAtlantisExtractor":
-        print(f"# Using {extractor_name} with model: {args.model}", file=sys.stderr)
-
-    # Warn if URL doesn't match common patterns (updated check)
-    parsed_url = urlparse(args.url)
-    if "thenewatlantis.com" not in parsed_url.netloc:
-        print("Info: Using LLM-based extraction for this site", file=sys.stderr)
-
-    # Generate and print Markdown header
-    markdown_header = format_markdown_header(metadata, args.creation_date)
-    print(markdown_header)
+    if args.command == "metadata":
+        _run_metadata(args)
+    elif args.command == "content":
+        _run_content(args)
 
 
 if __name__ == "__main__":
