@@ -606,7 +606,6 @@ def main():
         help="LLM model for generic extraction (default: gpt-4o-mini). "
         "Only used for non-specialized sites.",
     )
-
     # content subcommand
     content_parser = subparsers.add_parser(
         "content",
@@ -625,7 +624,6 @@ def main():
         default=False,
         help="Strip images from the output",
     )
-
     args = parser.parse_args()
 
     if args.command == "metadata":
