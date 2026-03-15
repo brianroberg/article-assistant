@@ -23,28 +23,22 @@ git clone <repository-url>
 cd article-assistant
 ```
 
-2. Create and activate a virtual environment:
+2. Install dependencies with [uv](https://docs.astral.sh/uv/):
 ```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+uv sync
 ```
 
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Configure LLM API keys (for generic site extraction):
+3. Configure LLM API keys (for generic site extraction):
 ```bash
 # For OpenAI (recommended)
-llm keys set openai
+uv run llm keys set openai
 
 # Or for Anthropic Claude
-pip install llm-anthropic
-llm keys set anthropic
+uv add llm-anthropic
+uv run llm keys set anthropic
 
 # Verify installation
-llm --version
+uv run llm --version
 ```
 
 **Note**: LLM configuration is only required for extracting metadata from generic websites. The New Atlantis extraction works without any API keys.
@@ -56,13 +50,13 @@ llm --version
 **Extract metadata from a New Atlantis article** (specialized, fast, no LLM):
 
 ```bash
-python extract_article_metadata.py "https://www.thenewatlantis.com/publications/the-tyranny-of-now"
+uv run python extract_article_metadata.py "https://www.thenewatlantis.com/publications/the-tyranny-of-now"
 ```
 
 **Extract metadata from a generic website** (LLM-based):
 
 ```bash
-python extract_article_metadata.py "https://example.com/article-url"
+uv run python extract_article_metadata.py "https://example.com/article-url"
 ```
 
 **Output:**
@@ -85,10 +79,10 @@ Choose a different LLM model for generic extraction:
 
 ```bash
 # Use OpenAI GPT-4
-python extract_article_metadata.py --model gpt-4o "https://example.com/article"
+uv run python extract_article_metadata.py --model gpt-4o "https://example.com/article"
 
 # Use Anthropic Claude (requires llm-anthropic plugin)
-python extract_article_metadata.py --model claude-3.5-sonnet "https://example.com/article"
+uv run python extract_article_metadata.py --model claude-3.5-sonnet "https://example.com/article"
 ```
 
 **Note**: The `--model` argument only affects generic site extraction. The New Atlantis uses specialized extraction logic.
@@ -98,7 +92,7 @@ python extract_article_metadata.py --model claude-3.5-sonnet "https://example.co
 Specify a custom creation date:
 
 ```bash
-python extract_article_metadata.py --creation-date 2024-12-01 "https://example.com/article-url"
+uv run python extract_article_metadata.py --creation-date 2024-12-01 "https://example.com/article-url"
 ```
 
 ### Help
@@ -106,7 +100,7 @@ python extract_article_metadata.py --creation-date 2024-12-01 "https://example.c
 View all available options:
 
 ```bash
-python extract_article_metadata.py --help
+uv run python extract_article_metadata.py --help
 ```
 
 ## Output Format
@@ -136,14 +130,14 @@ The project includes comprehensive unit and functional tests:
 
 ```bash
 # Run all tests
-python -m pytest
+uv run python -m pytest
 
 # Run with verbose output
-python -m pytest -v
+uv run python -m pytest -v
 
 # Run specific test file
-python -m pytest tests/test_extract_article_metadata.py
-python -m pytest tests/test_functional.py
+uv run python -m pytest tests/test_extract_article_metadata.py
+uv run python -m pytest tests/test_functional.py
 ```
 
 ### Code Quality
@@ -171,11 +165,11 @@ article-assistant/
 │   ├── test_extract_article_metadata.py  # Unit tests
 │   ├── test_extractors.py        # Extractor tests
 │   └── test_functional.py        # Functional tests
-├── requirements.txt               # Python dependencies
+├── pyproject.toml                 # Project metadata and dependencies
+├── uv.lock                       # Locked dependency versions
 ├── .gitignore                     # Git exclusion rules
 ├── CLAUDE.md                      # Claude Code development guidelines
-├── README.md                      # This file
-└── venv/                         # Virtual environment (created during setup)
+└── README.md                      # This file
 ```
 
 ## Technical Details
@@ -245,6 +239,8 @@ When articles only display season information (e.g., "Winter 2025") without expl
 
 ## Dependencies
 
+Dependencies are managed via [uv](https://docs.astral.sh/uv/) and defined in `pyproject.toml`.
+
 ### Core Dependencies
 - **requests**: HTTP library for fetching article content
 - **beautifulsoup4**: HTML parsing and DOM navigation
@@ -260,8 +256,7 @@ When articles only display season information (e.g., "Winter 2025") without expl
 ## Troubleshooting
 
 **Import errors**:
-- Ensure you've activated the virtual environment: `source venv/bin/activate`
-- Verify all dependencies are installed: `pip install -r requirements.txt`
+- Ensure dependencies are installed: `uv sync`
 
 **Network errors**:
 - Check your internet connection
@@ -272,25 +267,25 @@ When articles only display season information (e.g., "Winter 2025") without expl
 
 - **"llm package not installed"**:
   ```bash
-  pip install llm
+  uv sync
   ```
 
 - **"Failed to initialize LLM model" / API key errors**:
   ```bash
   # Configure API key for your chosen provider
-  llm keys set openai
+  uv run llm keys set openai
   # Or
-  llm keys set anthropic
+  uv run llm keys set anthropic
   ```
 
 - **"Model not available"**:
   ```bash
   # List available models
-  llm models list
+  uv run llm models list
 
   # Install additional model plugins
-  pip install llm-anthropic  # For Claude
-  pip install llm-ollama     # For local models
+  uv add llm-anthropic  # For Claude
+  uv add llm-ollama     # For local models
   ```
 
 - **Slow LLM extraction**:
@@ -317,7 +312,7 @@ This project is provided as-is for educational and personal use.
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes and add tests
-4. Ensure all tests pass (`python -m pytest`)
+4. Ensure all tests pass (`uv run python -m pytest`)
 5. Check code quality (`ruff check . && ruff format .`)
 6. Commit your changes (`git commit -m 'Add amazing feature'`)
 7. Push to the branch (`git push origin feature/amazing-feature`)
@@ -336,8 +331,7 @@ This project is provided as-is for educational and personal use.
 ### Common Issues
 
 **Import errors when running the script:**
-- Ensure you've activated the virtual environment: `source venv/bin/activate`
-- Install dependencies: `pip install -r requirements.txt`
+- Ensure dependencies are installed: `uv sync`
 
 **Network timeout errors:**
 - Check your internet connection

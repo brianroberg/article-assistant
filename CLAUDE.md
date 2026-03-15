@@ -6,8 +6,8 @@ This document outlines the development practices and guidelines used when workin
 
 ### Linting and Formatting
 - **Always use Ruff** for both linting and formatting
-- Run `ruff check .` before committing any code
-- Run `ruff format .` to maintain consistent code style
+- Run `uv run ruff check .` before committing any code
+- Run `uv run ruff format .` to maintain consistent code style
 - Fix all linting issues - never commit code with unresolved linting errors
 
 ### Testing Requirements
@@ -22,18 +22,18 @@ This document outlines the development practices and guidelines used when workin
 ### Test Commands
 ```bash
 # Run all tests
-python -m pytest
+uv run python -m pytest
 
 # Run with verbose output
-python -m pytest -v
+uv run python -m pytest -v
 
 # Run specific test files
-python -m pytest tests/test_extract_article_metadata.py
-python -m pytest tests/test_functional.py
+uv run python -m pytest tests/test_extract_article_metadata.py
+uv run python -m pytest tests/test_functional.py
 
 # Check code quality
-ruff check .
-ruff format .
+uv run ruff check .
+uv run ruff format .
 ```
 
 ## Project Structure
@@ -46,7 +46,8 @@ ruff format .
 
 ### Required Files
 - `README.md` - Comprehensive project documentation
-- `requirements.txt` - All Python dependencies with version constraints
+- `pyproject.toml` - Project metadata and dependencies (managed by uv)
+- `uv.lock` - Locked dependency versions
 - `.gitignore` - Comprehensive exclusion rules for Python projects
 - `CLAUDE.md` - This development guidelines document
 
@@ -83,8 +84,9 @@ ruff format .
 
 ### Dependencies
 - Minimize external dependencies
-- Pin dependency versions in requirements.txt
-- Use virtual environments for isolation
+- Manage dependencies via uv and pyproject.toml
+- Use `uv add <package>` to add new dependencies
+- Use `uv add --group dev <package>` for dev-only dependencies
 - Document the purpose of each dependency
 
 ### Command-Line Interface
